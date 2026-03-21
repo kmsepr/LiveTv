@@ -1,11 +1,12 @@
-import subprocess
-import requests
+import logging
 from flask import Flask, Response, render_template_string, abort
+import subprocess, requests
 
+logging.basicConfig(level=logging.INFO)
 app = Flask(__name__)
 
 # -----------------------
-# TV Streams
+# TV Streams ONLY
 # -----------------------
 TV_STREAMS = {
     "safari_tv": "https://j78dp346yq5r-hls-live.5centscdn.com/safari/live.stream/chunks.m3u8",
@@ -29,137 +30,48 @@ CHANNEL_LOGOS = {
 }
 
 # -----------------------
-# HOME (SPB STYLE UI)
+# HOME (OLD UI, ONLY TV)
 # -----------------------
 @app.route("/")
 def home():
-    channels = list(TV_STREAMS.keys())
+    tv_channels = list(TV_STREAMS.keys())
 
     html = """
 <html>
 <head>
-<title>KM TV</title>
+<title>📺 KM TV</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <style>
-body {
-    margin:0;
-    font-family:sans-serif;
-    background: linear-gradient(#0a6d6d, #0b2f2f);
-    color:#fff;
-}
-
-/* Top bar */
-.topbar {
-    padding:10px;
-    background:#0b5c5c;
-    font-size:18px;
-}
-
-/* Preview */
-.preview {
-    text-align:center;
-    padding:10px;
-}
-
-.preview video {
-    width:95%;
-    max-width:320px;
-    background:#000;
-}
-
-/* Schedule */
-.schedule {
-    padding:10px;
-    font-size:15px;
-}
-
-/* Channel strip */
-.strip {
-    display:flex;
-    overflow-x:auto;
-    gap:10px;
-    padding:10px;
-    background:#0b5c5c;
-}
-
-.channel {
-    min-width:90px;
-    background:#fff;
-    border-radius:10px;
-    padding:5px;
-    text-align:center;
-}
-
-.channel img {
-    width:60px;
-    height:40px;
-    object-fit:contain;
-}
-
-.channel a {
-    display:block;
-    font-size:12px;
-    color:#000;
-    text-decoration:none;
-}
-
-/* Footer */
-.footer {
-    display:flex;
-    justify-content:space-between;
-    padding:10px;
-    background:#083c3c;
-}
+body { font-family:sans-serif; background:#111; color:#fff; margin:0; padding:0; }
+h2 { text-align:center; margin:10px 0; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(120px,1fr)); gap:12px; padding:10px; }
+.card { background:#222; border-radius:10px; padding:10px; text-align:center; }
+.card img { width:100%; height:80px; object-fit:contain; margin-bottom:8px; }
+.card span { font-size:14px; color:#0f0; }
 </style>
-
 </head>
-
 <body>
 
-<div class="topbar">KM TV</div>
+<h2>📺 KM TV</h2>
 
-<div class="preview">
-    <video controls autoplay>
-        <source src="{{ first }}">
-    </video>
-</div>
-
-<div class="schedule">
-<b>12:00</b> News<br>
-<b>12:30</b> In Focus<br>
-<b>13:00</b> News<br>
-<b>13:30</b> Program<br>
-</div>
-
-<div class="strip">
-{% for key in channels %}
-<div class="channel">
-    <a href="/watch/{{ key }}">
-        <img src="{{ logos.get(key) }}">
-        {{ key.replace('_',' ').title() }}
-    </a>
+<div class="grid">
+{% for key in tv_channels %}
+<div class="card">
+    <img src="{{ logos.get(key) }}">
+    <span>{{ key.replace('_',' ').title() }}</span><br>
+    <a href="/watch/{{ key }}" style="color:#0ff;">▶ Watch</a> |
+    <a href="/audio/{{ key }}" style="color:#ff0;">🎵 Audio</a>
 </div>
 {% endfor %}
-</div>
-
-<div class="footer">
-<span>Exit</span>
-<span>Menu</span>
 </div>
 
 </body>
 </html>
 """
-    return render_template_string(
-        html,
-        channels=channels,
-        logos=CHANNEL_LOGOS,
-        first=TV_STREAMS[channels[0]]
-    )
+    return render_template_string(html, tv_channels=tv_channels, logos=CHANNEL_LOGOS)
 
 # -----------------------
-# WATCH PLAYER
+# WATCH
 # -----------------------
 @app.route("/watch/<channel>")
 def watch(channel):
@@ -179,24 +91,23 @@ def watch(channel):
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{channel}</title>
-
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
 <style>
 body {{ background:#000; color:#fff; text-align:center; margin:0; padding:10px; }}
 video {{ width:95%; max-width:720px; background:#000; }}
-a {{ color:#0f0; display:inline-block; margin:10px; font-size:18px; }}
+a {{ color:#0f0; text-decoration:none; margin:10px; display:inline-block; font-size:18px; }}
 </style>
 
 <script>
 document.addEventListener("DOMContentLoaded", function() {{
-  var video = document.getElementById("player");
-  var src = "{url}";
+  const video = document.getElementById("player");
+  const src = "{url}";
 
   if (video.canPlayType("application/vnd.apple.mpegurl")) {{
     video.src = src;
   }} else if (Hls.isSupported()) {{
-    var hls = new Hls();
+    const hls = new Hls();
     hls.loadSource(src);
     hls.attachMedia(video);
   }}
@@ -212,7 +123,7 @@ document.addEventListener("keydown", function(e) {{
 </head>
 <body>
 
-<h3>{channel.replace('_',' ').title()}</h3>
+<h2>{channel.replace('_',' ').title()}</h2>
 
 <video id="player" controls autoplay></video>
 
@@ -220,7 +131,6 @@ document.addEventListener("keydown", function(e) {{
 <a href="/">⬅ Home</a>
 <a href="/watch/{prev_ch}">⏮ Prev</a>
 <a href="/watch/{next_ch}">⏭ Next</a>
-<a href="/audio/{channel}">🎵 Audio</a>
 
 </body>
 </html>
@@ -228,7 +138,7 @@ document.addEventListener("keydown", function(e) {{
     return html
 
 # -----------------------
-# AUDIO STREAM
+# AUDIO
 # -----------------------
 @app.route("/audio/<channel>")
 def audio(channel):
