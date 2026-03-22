@@ -17,6 +17,7 @@ TV_STREAMS = {
 
 "24_news": "https://segment.yuppcdn.net/110322/channel24/playlist.m3u8",
 
+"Cartoon": "http://31.148.48.15/Mult/index.m3u8",
 
     "france_24": "https://live.france24.com/hls/live/2037218/F24_EN_HI_HLS/master_500.m3u8",
 }
