@@ -1,32 +1,27 @@
 import subprocess
 import time
-import threading
 import logging
 import os
-from flask import Flask, Response, render_template_string
+from flask import Flask, Response, request, render_template_string
 
 # -----------------------
 # Config
 # -----------------------
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO)
 app = Flask(__name__)
 
-COOKIES_FILE = "cookies.txt"
+# Support both cookie locations
+COOKIES_PATHS = ["/mnt/data/cookies.txt", "cookies.txt"]
 
 # -----------------------
-# Channels (use reliable ones first)
+# Find cookies
 # -----------------------
-YOUTUBE_STREAMS = {
-    "media_one": "https://www.youtube.com/@MediaoneTVLive/live",
-    "aljazeera_english": "https://www.youtube.com/@AlJazeeraEnglish/live",
-    "qsc_mukkam": "https://www.youtube.com/c/quranstudycentremukkam/live",
-    "shajahan_rahmani": "https://www.youtube.com/@ShajahanRahmaniOfficial/live",
-}
-
-# -----------------------
-# Cache
-# -----------------------
-CACHE = {}
+def get_cookies():
+    for path in COOKIES_PATHS:
+        if os.path.exists(path):
+            logging.info(f"🍪 Using cookies: {path}")
+            return path
+    return None
 
 # -----------------------
 # Get audio URL
@@ -41,9 +36,9 @@ def get_audio_url(youtube_url):
             "--user-agent", "Mozilla/5.0",
         ]
 
-        if os.path.exists(COOKIES_FILE):
-            command += ["--cookies", COOKIES_FILE]
-            logging.info("🍪 Using cookies")
+        cookies = get_cookies()
+        if cookies:
+            command += ["--cookies", cookies]
 
         command += ["-g", youtube_url]
 
@@ -52,9 +47,10 @@ def get_audio_url(youtube_url):
         if result.returncode == 0:
             url = result.stdout.strip()
             if url:
+                logging.info("✅ Stream URL ready")
                 return url
 
-        logging.error(f"yt-dlp failed: {result.stderr.strip()}")
+        logging.error(result.stderr)
         return None
 
     except Exception:
@@ -62,32 +58,14 @@ def get_audio_url(youtube_url):
         return None
 
 # -----------------------
-# Refresh URLs
-# -----------------------
-def refresh_streams():
-    while True:
-        logging.info("🔄 Refreshing streams...")
-        for name, url in YOUTUBE_STREAMS.items():
-            direct = get_audio_url(url)
-            if direct:
-                CACHE[name] = direct
-                logging.info(f"✅ {name} ready")
-            else:
-                CACHE[name] = None
-                logging.warning(f"❌ {name} unavailable")
-        time.sleep(60)
-
-threading.Thread(target=refresh_streams, daemon=True).start()
-
-# -----------------------
 # Stream generator
 # -----------------------
-def generate(name):
+def generate(youtube_url):
     while True:
-        url = CACHE.get(name)
+        stream_url = get_audio_url(youtube_url)
 
-        if not url:
-            logging.warning(f"No stream for {name}, retrying...")
+        if not stream_url:
+            logging.warning("⚠️ No stream URL, retrying...")
             time.sleep(3)
             continue
 
@@ -98,7 +76,7 @@ def generate(name):
                 "-reconnect_streamed", "1",
                 "-reconnect_delay_max", "10",
                 "-headers", "User-Agent: Mozilla/5.0",
-                "-i", url,
+                "-i", stream_url,
                 "-vn",
                 "-ac", "1",
                 "-b:a", "48k",
@@ -109,58 +87,75 @@ def generate(name):
             stderr=subprocess.DEVNULL,
         )
 
-        logging.info(f"🎵 Streaming {name}")
+        logging.info("🎵 Streaming started")
 
         try:
             for chunk in iter(lambda: process.stdout.read(4096), b""):
                 if chunk:
                     yield chunk
         except GeneratorExit:
+            logging.info("❌ Client disconnected")
             process.terminate()
             process.wait()
             break
         except Exception as e:
-            logging.error(f"Stream error: {e}")
+            logging.error(e)
 
-        logging.warning(f"Restarting {name}...")
+        logging.warning("🔄 Restarting stream...")
         process.terminate()
         process.wait()
         time.sleep(2)
 
 # -----------------------
-# Routes
+# Home Page (FIXED UI)
 # -----------------------
-@app.route("/")
+@app.route("/", methods=["GET", "POST"])
 def home():
-    html = """
+    if request.method == "POST":
+        url = request.form.get("url")
+        return f"""
+        <html>
+        <body>
+            <h3>▶️ Stream Ready</h3>
+            <a href="/play?url={url}">Click here to play</a>
+            <br><br>
+            <a href="/">⬅ Back</a>
+        </body>
+        </html>
+        """
+
+    return render_template_string("""
     <html>
     <head>
-        <title>🎵 Live Radio</title>
+        <title>YouTube Radio</title>
         <style>
-            body { font-family: Arial; padding: 15px; }
-            a { display:block; margin:8px 0; font-weight:bold; color:blue; }
-            .offline { color:gray; }
+            body { font-family: Arial; padding: 20px; text-align: center; }
+            input { width: 80%; padding: 10px; margin: 10px; }
+            button { padding: 10px 20px; }
         </style>
     </head>
     <body>
-        <h3>🎵 Live Channels</h3>
-    """
+        <h2>🎵 YouTube Live → Radio</h2>
+        <form method="POST">
+            <input type="text" name="url" placeholder="Paste YouTube live URL here" required>
+            <br>
+            <button type="submit">Play</button>
+        </form>
+    </body>
+    </html>
+    """)
 
-    for name in YOUTUBE_STREAMS:
-        display = name.replace("_", " ").title()
-        if CACHE.get(name):
-            html += f"<a href='/{name}'>{display} ▶️</a>"
-        else:
-            html += f"<span class='offline'>{display} (offline)</span><br>"
+# -----------------------
+# Play route
+# -----------------------
+@app.route("/play")
+def play():
+    youtube_url = request.args.get("url")
 
-    html += "</body></html>"
-    return render_template_string(html)
+    if not youtube_url:
+        return "No URL provided"
 
-@app.route("/<name>")
-def stream(name):
-    if name not in YOUTUBE_STREAMS:
-        return "Channel not found", 404
-    return Response(generate(name), mimetype="audio/mpeg")
+    return Response(generate(youtube_url), mimetype="audio/mpeg")
 
 # -----------------------
 # Run
