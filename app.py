@@ -1,180 +1,171 @@
+import subprocess
+import time
+import threading
+import os
 import logging
-from flask import Flask, Response, render_template_string, abort
-import subprocess, requests
+from flask import Flask, Response, render_template_string
 
-logging.basicConfig(level=logging.INFO)
+# -----------------------
+# Configure logging
+# -----------------------
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 app = Flask(__name__)
 
 # -----------------------
-# TV Streams ONLY
+# YouTube Live Streams
 # -----------------------
-TV_STREAMS = {
-    "safari_tv": "https://j78dp346yq5r-hls-live.5centscdn.com/safari/live.stream/chunks.m3u8",
-    "dd_sports": "https://cdn-6.pishow.tv/live/13/master.m3u8",
-    "dd_malayalam": "https://d3eyhgoylams0m.cloudfront.net/v1/manifest/93ce20f0f52760bf38be911ff4c91ed02aa2fd92/ed7bd2c7-8d10-4051-b397-2f6b90f99acb/562ee8f9-9950-48a0-ba1d-effa00cf0478/2.m3u8",
-    "mazhavil_manorama": "https://yuppmedtaorire.akamaized.net/v1/master/a0d007312bfd99c47f76b77ae26b1ccdaae76cb1/mazhavilmanorama_nim_https/050522/mazhavilmanorama/playlist.m3u8",
-    "victers_tv": "https://932y4x26ljv8-hls-live.5centscdn.com/victers/tv.stream/chunks.m3u8",
-
-"24_news": "https://segment.yuppcdn.net/110322/channel24/playlist.m3u8",
-
-"Cartoon": "http://31.148.48.15/Mult/index.m3u8",
-
-    "france_24": "https://live.france24.com/hls/live/2037218/F24_EN_HI_HLS/master_500.m3u8",
+YOUTUBE_STREAMS = {
+    "media_one": "https://www.youtube.com/@MediaoneTVLive/live",
+    "shajahan_rahmani": "https://www.youtube.com/@ShajahanRahmaniOfficial/live",
+    "qsc_mukkam": "https://www.youtube.com/c/quranstudycentremukkam/live",
+    "valiyudheen_faizy": "https://www.youtube.com/@voiceofvaliyudheenfaizy600/live",
+    "skicr_tv": "https://www.youtube.com/@SKICRTV/live",
+    "yaqeen_institute": "https://www.youtube.com/@yaqeeninstituteofficial/live",
+    "bayyinah_tv": "https://www.youtube.com/@bayyinah/live",
+    "eft_guru": "https://www.youtube.com/@EFTGuru-ql8dk/live",
+    "unacademy_ias": "https://www.youtube.com/@UnacademyIASEnglish/live",
+    "studyiq_hindi": "https://www.youtube.com/@StudyIQEducationLtd/live",
+    "aljazeera_arabic": "https://www.youtube.com/@aljazeera/live",
+    "aljazeera_english": "https://www.youtube.com/@AlJazeeraEnglish/live",
+    "entri_degree": "https://www.youtube.com/@EntriDegreeLevelExams/live",
+    "xylem_psc": "https://www.youtube.com/@XylemPSC/live",
+    "xylem_sslc": "https://www.youtube.com/@XylemSSLC2023/live",
+    "entri_app": "https://www.youtube.com/@entriapp/live",
+    "entri_ias": "https://www.youtube.com/@EntriIAS/live",
+    "studyiq_english": "https://www.youtube.com/@studyiqiasenglish/live",
+    "voice_rahmani": "https://www.youtube.com/@voiceofrahmaniyya5828/live",
 }
 
 # -----------------------
-# Logos
+# Cache
 # -----------------------
-CHANNEL_LOGOS = {
-    "safari_tv": "https://i.imgur.com/dSOfYyh.png",
-    "victers_tv": "https://i.imgur.com/kj4OEsb.png",
-    "france_24": "https://upload.wikimedia.org/wikipedia/commons/c/c1/France_24_logo_%282013%29.svg",
-    "mazhavil_manorama": "https://i.imgur.com/fjgzW20.png",
-    "dd_malayalam": "https://i.imgur.com/ywm2dTl.png",
-    "dd_sports": "https://i.imgur.com/J2Ky5OO.png",
-}
+CACHE = {}
+COOKIES_FILE = "/mnt/data/cookies.txt"
 
 # -----------------------
-# HOME (OLD UI, ONLY TV)
+# Get direct audio URL
 # -----------------------
-@app.route("/")
-def home():
-    tv_channels = list(TV_STREAMS.keys())
+def get_youtube_audio_url(youtube_url: str):
+    try:
+        command = ["yt-dlp", "-f", "bestaudio", "-g", youtube_url]
 
-    html = """
-<html>
-<head>
-<title>📺 KM TV</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
-body { font-family:sans-serif; background:#111; color:#fff; margin:0; padding:0; }
-h2 { text-align:center; margin:10px 0; }
-.grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(120px,1fr)); gap:12px; padding:10px; }
-.card { background:#222; border-radius:10px; padding:10px; text-align:center; }
-.card img { width:100%; height:80px; object-fit:contain; margin-bottom:8px; }
-.card span { font-size:14px; color:#0f0; }
-</style>
-</head>
-<body>
+        if os.path.exists(COOKIES_FILE):
+            command.insert(1, "--cookies")
+            command.insert(2, COOKIES_FILE)
 
-<h2>📺 KM TV</h2>
+        result = subprocess.run(command, capture_output=True, text=True)
 
-<div class="grid">
-{% for key in tv_channels %}
-<div class="card">
-    <img src="{{ logos.get(key) }}">
-    <span>{{ key.replace('_',' ').title() }}</span><br>
-    <a href="/watch/{{ key }}" style="color:#0ff;">▶ Watch</a> |
-    <a href="/audio/{{ key }}" style="color:#ff0;">🎵 Audio</a>
-</div>
-{% endfor %}
-</div>
+        if result.returncode == 0:
+            url = result.stdout.strip()
+            if url:
+                return url
 
-</body>
-</html>
-"""
-    return render_template_string(html, tv_channels=tv_channels, logos=CHANNEL_LOGOS)
+        logging.error(f"yt-dlp error: {result.stderr.strip()}")
+        return None
+
+    except Exception:
+        logging.exception("Error extracting YouTube URL")
+        return None
 
 # -----------------------
-# WATCH
+# Refresh URLs (every 60s)
 # -----------------------
-@app.route("/watch/<channel>")
-def watch(channel):
-    if channel not in TV_STREAMS:
-        abort(404)
+def refresh_stream_urls():
+    while True:
+        logging.info("🔄 Refreshing stream URLs...")
+        for name, url in YOUTUBE_STREAMS.items():
+            direct_url = get_youtube_audio_url(url)
+            if direct_url:
+                CACHE[name] = direct_url
+                logging.info(f"✅ {name} updated")
+            else:
+                logging.warning(f"❌ {name} unavailable")
+        time.sleep(60)
 
-    channels = list(TV_STREAMS.keys())
-    i = channels.index(channel)
-
-    prev_ch = channels[(i - 1) % len(channels)]
-    next_ch = channels[(i + 1) % len(channels)]
-
-    url = TV_STREAMS[channel]
-
-    html = f"""
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{channel}</title>
-<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-
-<style>
-body {{ background:#000; color:#fff; text-align:center; margin:0; padding:10px; }}
-video {{ width:95%; max-width:720px; background:#000; }}
-a {{ color:#0f0; text-decoration:none; margin:10px; display:inline-block; font-size:18px; }}
-</style>
-
-<script>
-document.addEventListener("DOMContentLoaded", function() {{
-  const video = document.getElementById("player");
-  const src = "{url}";
-
-  if (video.canPlayType("application/vnd.apple.mpegurl")) {{
-    video.src = src;
-  }} else if (Hls.isSupported()) {{
-    const hls = new Hls();
-    hls.loadSource(src);
-    hls.attachMedia(video);
-  }}
-}});
-
-document.addEventListener("keydown", function(e) {{
-  if(e.key==="4") window.location="/watch/{prev_ch}";
-  if(e.key==="6") window.location="/watch/{next_ch}";
-  if(e.key==="0") window.location="/";
-}});
-</script>
-
-</head>
-<body>
-
-<h2>{channel.replace('_',' ').title()}</h2>
-
-<video id="player" controls autoplay></video>
-
-<br>
-<a href="/">⬅ Home</a>
-<a href="/watch/{prev_ch}">⏮ Prev</a>
-<a href="/watch/{next_ch}">⏭ Next</a>
-
-</body>
-</html>
-"""
-    return html
+threading.Thread(target=refresh_stream_urls, daemon=True).start()
 
 # -----------------------
-# AUDIO
+# Stream generator
 # -----------------------
-@app.route("/audio/<channel>")
-def audio(channel):
-    if channel not in TV_STREAMS:
-        return "Invalid channel"
+def generate_stream(station_name: str):
+    while True:
+        url = CACHE.get(station_name)
 
-    url = TV_STREAMS[channel]
+        if not url:
+            logging.warning(f"No URL for {station_name}, retrying...")
+            time.sleep(2)
+            continue
 
-    def generate():
-        cmd = [
-            "ffmpeg", "-i", url,
-            "-vn",
-            "-ac", "1",
-            "-b:a", "40k",
-            "-f", "mp3",
-            "pipe:1"
-        ]
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        process = subprocess.Popen(
+            [
+                "ffmpeg",
+                "-reconnect", "1",
+                "-reconnect_streamed", "1",
+                "-reconnect_delay_max", "10",
+                "-headers", "User-Agent: Mozilla/5.0",
+                "-i", url,
+                "-vn",
+                "-ac", "1",
+                "-b:a", "48k",
+                "-f", "mp3",
+                "-"
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+
+        logging.info(f"🎵 Streaming {station_name}")
+
         try:
-            while True:
-                data = proc.stdout.read(1024)
-                if not data:
-                    break
-                yield data
-        finally:
-            proc.terminate()
+            for chunk in iter(lambda: process.stdout.read(4096), b""):
+                if chunk:
+                    yield chunk
+        except GeneratorExit:
+            logging.info(f"❌ Client disconnected: {station_name}")
+            process.terminate()
+            process.wait()
+            break
+        except Exception as e:
+            logging.error(f"Stream error: {e}")
 
-    return Response(generate(), mimetype="audio/mpeg")
+        logging.warning(f"⚠️ Restarting {station_name}...")
+        process.terminate()
+        process.wait()
+        time.sleep(3)
 
 # -----------------------
-# RUN
+# Routes
+# -----------------------
+@app.route("/<station_name>")
+def stream(station_name):
+    if station_name not in YOUTUBE_STREAMS:
+        return "Station not found", 404
+    return Response(generate_stream(station_name), mimetype="audio/mpeg")
+
+@app.route("/")
+def index():
+    html = """
+    <html>
+    <head>
+    <title>🎵 Live Audio Radio</title>
+    <style>
+    body { font-family: sans-serif; padding: 10px; }
+    a { display:block; margin:5px 0; font-weight:bold; color:blue; }
+    </style>
+    </head>
+    <body>
+    <h3>🎵 Live Streams</h3>
+    """
+
+    for i, name in enumerate(sorted(YOUTUBE_STREAMS.keys()), 1):
+        display = name.replace("_", " ").title()
+        html += f"<a href='/{name}'>{i}. {display}</a>"
+
+    html += "</body></html>"
+    return render_template_string(html)
+
+# -----------------------
+# Run
 # -----------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
