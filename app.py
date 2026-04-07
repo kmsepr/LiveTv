@@ -13,32 +13,36 @@ app = Flask(__name__)
 COOKIES_FILE = "/mnt/data/cookies.txt"
 
 # -----------------------
-# Get audio URL
+# Get Audio URL (IMPROVED)
 # -----------------------
 def get_audio_url(youtube_url):
     try:
         command = [
             "yt-dlp",
-            "-f", "bestaudio/best",
+            "-f", "bestaudio",
+            "--no-playlist",
             "--no-warnings",
-            "--extractor-args", "youtube:player_client=android",
-            "--user-agent", "Mozilla/5.0",
-            "--sleep-requests", "5",   # 🔥 avoid rate limit
-            "--cookies", COOKIES_FILE,
-            "-g", youtube_url
+
+            # 🔥 VERY IMPORTANT FIXES
+            "--extractor-args", "youtube:player_client=android,web",
+            "--sleep-requests", "2",
+            "--sleep-interval", "2",
+            "--max-sleep-interval", "5",
+
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+
+            "-g",
+            youtube_url
         ]
 
-        # Check cookies exist
-        if not os.path.exists(COOKIES_FILE):
-            logging.error("❌ cookies.txt not found at /mnt/data/")
-            return None
-        else:
+        if os.path.exists(COOKIES_FILE):
             logging.info(f"🍪 Using cookies: {COOKIES_FILE}")
+            command += ["--cookies", COOKIES_FILE]
 
         result = subprocess.run(command, capture_output=True, text=True)
 
         if result.returncode == 0:
-            url = result.stdout.strip()
+            url = result.stdout.strip().split("\n")[0]
             if url:
                 logging.info("✅ Stream URL ready")
                 return url
@@ -47,19 +51,24 @@ def get_audio_url(youtube_url):
         return None
 
     except Exception:
-        logging.exception("yt-dlp error")
+        logging.exception("yt-dlp failed")
         return None
 
+
 # -----------------------
-# Stream generator
+# Stream Generator (SAFE LOOP)
 # -----------------------
 def generate(youtube_url):
-    while True:
-        stream_url = get_audio_url(youtube_url)
+    last_url = None
 
-        if not stream_url:
-            logging.warning("⚠️ No stream URL, retrying in 10s...")
-            time.sleep(10)   # 🔥 increased delay
+    while True:
+        # 🔥 Don't spam yt-dlp repeatedly
+        if not last_url:
+            last_url = get_audio_url(youtube_url)
+
+        if not last_url:
+            logging.warning("⚠️ No stream URL, retry after delay...")
+            time.sleep(15)   # IMPORTANT: avoid rate limit
             continue
 
         process = subprocess.Popen(
@@ -68,8 +77,10 @@ def generate(youtube_url):
                 "-reconnect", "1",
                 "-reconnect_streamed", "1",
                 "-reconnect_delay_max", "10",
-                "-headers", "User-Agent: Mozilla/5.0",
-                "-i", stream_url,
+
+                "-headers", "User-Agent: Mozilla/5.0\r\n",
+                "-i", last_url,
+
                 "-vn",
                 "-ac", "1",
                 "-b:a", "48k",
@@ -86,18 +97,24 @@ def generate(youtube_url):
             for chunk in iter(lambda: process.stdout.read(4096), b""):
                 if chunk:
                     yield chunk
+
         except GeneratorExit:
             logging.info("❌ Client disconnected")
             process.terminate()
             process.wait()
             break
+
         except Exception as e:
             logging.error(e)
 
-        logging.warning("🔄 Restarting stream in 5s...")
+        # 🔄 Refresh URL after stream break
+        logging.warning("🔄 Refreshing stream URL...")
         process.terminate()
         process.wait()
+
+        last_url = None
         time.sleep(5)
+
 
 # -----------------------
 # Home Page
@@ -106,11 +123,14 @@ def generate(youtube_url):
 def home():
     if request.method == "POST":
         url = request.form.get("url")
+
         return f"""
         <html>
-        <body>
+        <body style="text-align:center;">
             <h3>▶️ Stream Ready</h3>
-            <a href="/play?url={url}">Click here to play</a>
+            <audio controls autoplay>
+                <source src="/play?url={url}" type="audio/mpeg">
+            </audio>
             <br><br>
             <a href="/">⬅ Back</a>
         </body>
@@ -120,9 +140,9 @@ def home():
     return render_template_string("""
     <html>
     <head>
-        <title>YouTube Radio</title>
+        <title>YouTube → Radio</title>
         <style>
-            body { font-family: Arial; padding: 20px; text-align: center; }
+            body { font-family: Arial; padding: 30px; text-align: center; }
             input { width: 80%; padding: 10px; margin: 10px; }
             button { padding: 10px 20px; }
         </style>
@@ -130,7 +150,7 @@ def home():
     <body>
         <h2>🎵 YouTube Live → Radio</h2>
         <form method="POST">
-            <input type="text" name="url" placeholder="Paste YouTube live URL here" required>
+            <input type="text" name="url" placeholder="Paste YouTube live URL" required>
             <br>
             <button type="submit">Play</button>
         </form>
@@ -138,8 +158,9 @@ def home():
     </html>
     """)
 
+
 # -----------------------
-# Play route
+# Stream Route
 # -----------------------
 @app.route("/play")
 def play():
@@ -149,6 +170,7 @@ def play():
         return "No URL provided"
 
     return Response(generate(youtube_url), mimetype="audio/mpeg")
+
 
 # -----------------------
 # Run
