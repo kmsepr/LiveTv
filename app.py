@@ -10,18 +10,7 @@ from flask import Flask, Response, request, render_template_string
 logging.basicConfig(level=logging.INFO)
 app = Flask(__name__)
 
-# Support both cookie locations
-COOKIES_PATHS = ["/mnt/data/cookies.txt", "cookies.txt"]
-
-# -----------------------
-# Find cookies
-# -----------------------
-def get_cookies():
-    for path in COOKIES_PATHS:
-        if os.path.exists(path):
-            logging.info(f"🍪 Using cookies: {path}")
-            return path
-    return None
+COOKIES_FILE = "/mnt/data/cookies.txt"
 
 # -----------------------
 # Get audio URL
@@ -34,13 +23,17 @@ def get_audio_url(youtube_url):
             "--no-warnings",
             "--extractor-args", "youtube:player_client=android",
             "--user-agent", "Mozilla/5.0",
+            "--sleep-requests", "5",   # 🔥 avoid rate limit
+            "--cookies", COOKIES_FILE,
+            "-g", youtube_url
         ]
 
-        cookies = get_cookies()
-        if cookies:
-            command += ["--cookies", cookies]
-
-        command += ["-g", youtube_url]
+        # Check cookies exist
+        if not os.path.exists(COOKIES_FILE):
+            logging.error("❌ cookies.txt not found at /mnt/data/")
+            return None
+        else:
+            logging.info(f"🍪 Using cookies: {COOKIES_FILE}")
 
         result = subprocess.run(command, capture_output=True, text=True)
 
@@ -65,8 +58,8 @@ def generate(youtube_url):
         stream_url = get_audio_url(youtube_url)
 
         if not stream_url:
-            logging.warning("⚠️ No stream URL, retrying...")
-            time.sleep(3)
+            logging.warning("⚠️ No stream URL, retrying in 10s...")
+            time.sleep(10)   # 🔥 increased delay
             continue
 
         process = subprocess.Popen(
@@ -101,13 +94,13 @@ def generate(youtube_url):
         except Exception as e:
             logging.error(e)
 
-        logging.warning("🔄 Restarting stream...")
+        logging.warning("🔄 Restarting stream in 5s...")
         process.terminate()
         process.wait()
-        time.sleep(2)
+        time.sleep(5)
 
 # -----------------------
-# Home Page (FIXED UI)
+# Home Page
 # -----------------------
 @app.route("/", methods=["GET", "POST"])
 def home():
