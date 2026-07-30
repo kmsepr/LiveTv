@@ -14,6 +14,7 @@ COOKIES_FILE = "/mnt/data/cookies.txt"
 
 STREAMS = {
     "media_one": "https://www.youtube.com/@mediaoneTVlive/live",
+    # "asianet": "https://www.youtube.com/@asianetnews/live",
 }
 
 # =========================================================
@@ -45,17 +46,22 @@ HOME_TEMPLATE = """
         .url { font-size: 12px; color: #9ca3af; word-break: break-all; }
         .footer { text-align: center; margin-top: 30px; font-size: 12px; color: #6b7280; }
         .badge { background: #ef4444; color: white; padding: 2px 8px; border-radius: 6px; font-size: 11px; margin-left: 8px; }
+        audio { width: 100%; margin-top: 8px; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🔴 YouTube Audio Stream Server</h1>
-        <p style="text-align:center; color:#9ca3af;">Open stream in VLC or browser. Check server console for full logs.</p>
+        <p style="text-align:center; color:#9ca3af;">Click play or open direct link in VLC</p>
         
         {% for name, url in streams.items() %}
         <div class="card">
-            <a href="/{{ name }}">{{ name.replace('_', ' ').title() }} <span class="badge">LIVE</span></a>
+            <div>{{ name.replace('_', ' ').title() }} <span class="badge">LIVE</span></div>
             <div class="url">Source: {{ url }}</div>
+            <audio controls preload="none">
+                <source src="/{{ name }}" type="audio/mpeg">
+                Your browser does not support audio.
+            </audio>
             <div style="margin-top:8px;">
                 <b>Direct:</b> <a href="/{{ name }}">{{ request.host_url }}{{ name }}</a>
             </div>
@@ -63,7 +69,7 @@ HOME_TEMPLATE = """
         {% endfor %}
         
         <div class="footer">
-            Cookies: {{ cookies_status }} | Check terminal for DEBUG logs
+            Cookies: {{ cookies_status }} | Client: iOS
         </div>
     </div>
 </body>
@@ -81,23 +87,25 @@ def generate_stream(stream_name, url):
     log("SYSTEM", f"URL: {url}")
     log("SYSTEM", f"Cookies: {COOKIES_FILE} Exists={os.path.exists(COOKIES_FILE)}")
 
+    # KEY FIX: use ios client to bypass PO Token requirement
     yt_cmd = [
-    "yt-dlp",
-    "-v",
-    "-f", "bestaudio[abr<=96]/bestaudio/best",
-    "-o", "-",
-    "--no-warnings",
-    "--live-from-start",
-    "--retries", "10",
-    "--fragment-retries", "10",
-    "--extractor-args", "youtube:player_client=web", # <-- key change
-    "--cookies", COOKIES_FILE,
-    "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    url
-]
+        "yt-dlp",
+        "-v",
+        "-f", "bestaudio[abr<=96]/bestaudio/best",
+        "-o", "-",
+        "--no-warnings",
+        "--live-from-start",
+        "--retries", "10",
+        "--fragment-retries", "10",
+        "--extractor-args", "youtube:player_client=ios",
+        "--cookies", COOKIES_FILE,
+        "--user-agent", "com.google.ios.youtube/19.45.4",
+        url
+    ]
+
     ffmpeg_cmd = [
         "ffmpeg",
-        "-loglevel", "debug",  # FULL ffmpeg debug
+        "-loglevel", "info",  # set to debug if you need more
         "-reconnect", "1",
         "-reconnect_streamed", "1", 
         "-reconnect_delay_max", "5",
@@ -121,12 +129,10 @@ def generate_stream(stream_name, url):
     def log_yt():
         for line in yt_process.stderr:
             log("YT-DLP", line.decode(errors="ignore").rstrip())
-        log("YT-DLP", "STDERR CLOSED")
 
     def log_ffmpeg():
         for line in ffmpeg_process.stderr:
             log("FFMPEG", line.decode(errors="ignore").rstrip())
-        log("FFMPEG", "STDERR CLOSED")
 
     threading.Thread(target=log_yt, daemon=True).start()
     threading.Thread(target=log_ffmpeg, daemon=True).start()
@@ -135,17 +141,11 @@ def generate_stream(stream_name, url):
         while True:
             chunk = ffmpeg_process.stdout.read(4096)
             if not chunk:
-                log("SYSTEM", f"NO DATA FROM FFMPEG. Bytes sent so far: {bytes_sent}")
-                # check if processes died
-                yt_code = yt_process.poll()
-                ff_code = ffmpeg_process.poll()
-                log("SYSTEM", f"yt-dlp exit code: {yt_code}")
-                log("SYSTEM", f"ffmpeg exit code: {ff_code}")
+                log("SYSTEM", f"NO DATA FROM FFMPEG. Bytes sent: {bytes_sent}")
+                log("SYSTEM", f"yt-dlp exit code: {yt_process.poll()}")
+                log("SYSTEM", f"ffmpeg exit code: {ffmpeg_process.poll()}")
                 break
-
             bytes_sent += len(chunk)
-            if bytes_sent % (4096*100) == 0:  # log every ~400KB
-                log("SYSTEM", f"STREAMING... {bytes_sent//1024} KB sent")
             yield chunk
 
     except GeneratorExit:
@@ -190,7 +190,7 @@ def stream(stream_name):
     return Response(
         generate_stream(stream_name, url),
         mimetype="audio/mpeg",
-        headers={"Cache-Control": "no-cache"}
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
     )
 
 # =========================================================
@@ -199,8 +199,7 @@ def stream(stream_name):
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("YOUTUBE AUDIO STREAM SERVER STARTING - DEBUG MODE")
+    print("YOUTUBE AUDIO STREAM SERVER STARTING")
+    print("Client: iOS | Cookies:", os.path.exists(COOKIES_FILE))
     print("=" * 60)
-    print(f"Cookies file: {COOKIES_FILE} -> {os.path.exists(COOKIES_FILE)}")
-    print("=" * 60)
-    app.run(host="0.0.0.0", port=8000, threaded=True, debug=False)
+    app.run(host="0.0.0.0", port=8000, threaded=True)
