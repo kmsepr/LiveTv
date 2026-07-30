@@ -1,7 +1,7 @@
 import os
 import subprocess
 import threading
-from flask import Flask, Response, render_template_string
+from flask import Flask, Response, render_template_string, request
 
 app = Flask(__name__)
 
@@ -10,11 +10,10 @@ app = Flask(__name__)
 # =========================================================
 
 COOKIES_FILE = "/mnt/data/cookies.txt"
-PROXY = None  # "http://user:pass@ip:port"
 
 STREAMS = {
     "media_one": "https://www.youtube.com/@mediaoneTVlive/live",
-    "asianet_news": "https://www.youtube.com/@asianetnews/live",  # example, add more here
+    # add more here: "name": "youtube_live_url"
 }
 
 # =========================================================
@@ -50,20 +49,20 @@ HOME_TEMPLATE = """
 <body>
     <div class="container">
         <h1>🔴 YouTube Audio Stream Server</h1>
-        <p style="text-align:center; color:#9ca3af;">Click any link below to start listening to the live audio stream</p>
+        <p style="text-align:center; color:#9ca3af;">Click to start listening</p>
         
         {% for name, url in streams.items() %}
         <div class="card">
             <a href="/{{ name }}" target="_blank">{{ name.replace('_', ' ').title() }} <span class="badge">LIVE</span></a>
             <div class="url">Source: {{ url }}</div>
             <div style="margin-top:8px;">
-                <b>Direct Link:</b> <a href="/{{ name }}">{{ request.host_url }}{{ name }}</a>
+                <b>Direct Stream:</b> <a href="/{{ name }}">{{ request.host_url }}{{ name }}</a>
             </div>
         </div>
         {% endfor %}
         
         <div class="footer">
-            Server running on port 8000 | Cookies: {{ cookies_status }}
+            Cookies: {{ cookies_status }}
         </div>
     </div>
 </body>
@@ -78,21 +77,35 @@ def generate_stream(url):
     log("SYSTEM", "=" * 50)
     log("SYSTEM", "NEW STREAM SESSION")
     log("SYSTEM", f"URL = {url}")
-    log("SYSTEM", f"Using cookies = {COOKIES_FILE}")
-    log("SYSTEM", f"Proxy enabled = {bool(PROXY)}")
+    log("SYSTEM", f"Cookies file exists = {os.path.exists(COOKIES_FILE)}")
 
     yt_cmd = [
-        "yt-dlp", "-v", "-f", "bestaudio/best", "-o", "-", "--no-warnings",
-        "--live-from-start", "--extractor-args", "youtube:player_client=android",
-        "--cookies", COOKIES_FILE, url
+        "yt-dlp",
+        "-v",
+        "-f", "bestaudio[abr<=96]/bestaudio/best",
+        "-o", "-",
+        "--no-warnings",
+        "--live-from-start",
+        "--retries", "10",
+        "--fragment-retries", "10",
+        "--extractor-args", "youtube:player_client=android",
+        "--cookies", COOKIES_FILE,
+        url
     ]
-    if PROXY:
-        yt_cmd.extend(["--proxy", PROXY])
 
     ffmpeg_cmd = [
-        "ffmpeg", "-loglevel", "info", "-reconnect", "1", "-reconnect_streamed", "1",
-        "-reconnect_delay_max", "5", "-i", "pipe:0", "-vn", "-ac", "1", "-ar", "22050",
-        "-b:a", "40k", "-f", "mp3", "-"
+        "ffmpeg",
+        "-loglevel", "info",
+        "-reconnect", "1",
+        "-reconnect_streamed", "1",
+        "-reconnect_delay_max", "5",
+        "-i", "pipe:0",
+        "-vn",
+        "-ac", "1",
+        "-ar", "22050",
+        "-b:a", "40k",
+        "-f", "mp3",
+        "-"
     ]
 
     yt_process = subprocess.Popen(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
