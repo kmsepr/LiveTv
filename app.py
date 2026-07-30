@@ -82,19 +82,19 @@ def generate_stream(stream_name, url):
     log("SYSTEM", f"Cookies: {COOKIES_FILE} Exists={os.path.exists(COOKIES_FILE)}")
 
     yt_cmd = [
-        "yt-dlp",
-        "-v",  # verbose
-        "-f", "bestaudio[abr<=96]/bestaudio/best",
-        "-o", "-",
-        "--no-warnings",
-        "--live-from-start",
-        "--retries", "10",
-        "--fragment-retries", "10",
-        "--extractor-args", "youtube:player_client=android",
-        "--cookies", COOKIES_FILE,
-        url
-    ]
-
+    "yt-dlp",
+    "-v",
+    "-f", "bestaudio[abr<=96]/bestaudio/best",
+    "-o", "-",
+    "--no-warnings",
+    "--live-from-start",
+    "--retries", "10",
+    "--fragment-retries", "10",
+    "--extractor-args", "youtube:player_client=web", # <-- key change
+    "--cookies", COOKIES_FILE,
+    "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    url
+]
     ffmpeg_cmd = [
         "ffmpeg",
         "-loglevel", "debug",  # FULL ffmpeg debug
