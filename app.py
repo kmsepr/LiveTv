@@ -10,8 +10,6 @@ app = Flask(__name__)
 # CONFIG
 # =========================================================
 
-COOKIES_FILE = "/mnt/data/cookies.txt"
-
 STREAMS = {
     "media_one": "https://www.youtube.com/@mediaoneTVlive/live",
     # "asianet": "https://www.youtube.com/@asianetnews/live",
@@ -38,22 +36,22 @@ HOME_TEMPLATE = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body { font-family: system-ui, sans-serif; background: #0f1117; color: #e6e6e6; margin: 0; padding: 20px; }
-        .container { max-width: 700px; margin: auto; }
+       .container { max-width: 700px; margin: auto; }
         h1 { text-align: center; color: #4ade80; }
-        .card { background: #1a1d24; padding: 16px; border-radius: 12px; margin: 12px 0; border: 1px solid #2a2f3a; }
-        .card a { color: #60a5fa; text-decoration: none; font-weight: 600; font-size: 18px; }
-        .card a:hover { text-decoration: underline; }
-        .url { font-size: 12px; color: #9ca3af; word-break: break-all; }
-        .footer { text-align: center; margin-top: 30px; font-size: 12px; color: #6b7280; }
-        .badge { background: #ef4444; color: white; padding: 2px 8px; border-radius: 6px; font-size: 11px; margin-left: 8px; }
+       .card { background: #1a1d24; padding: 16px; border-radius: 12px; margin: 12px 0; border: 1px solid #2a2f3a; }
+       .card a { color: #60a5fa; text-decoration: none; font-weight: 600; font-size: 18px; }
+       .card a:hover { text-decoration: underline; }
+       .url { font-size: 12px; color: #9ca3af; word-break: break-all; }
+       .footer { text-align: center; margin-top: 30px; font-size: 12px; color: #6b7280; }
+       .badge { background: #ef4444; color: white; padding: 2px 8px; border-radius: 6px; font-size: 11px; margin-left: 8px; }
         audio { width: 100%; margin-top: 8px; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🔴 YouTube Audio Stream Server</h1>
-        <p style="text-align:center; color:#9ca3af;">Click play or open direct link in VLC</p>
-        
+        <p style="text-align:center; color:#9ca3af;">Client: TV | No Cookies Required</p>
+
         {% for name, url in streams.items() %}
         <div class="card">
             <div>{{ name.replace('_', ' ').title() }} <span class="badge">LIVE</span></div>
@@ -67,9 +65,9 @@ HOME_TEMPLATE = """
             </div>
         </div>
         {% endfor %}
-        
+
         <div class="footer">
-            Cookies: {{ cookies_status }} | Client: iOS
+            Deploy: Koyeb | Check logs for "Downloading MPD manifest"
         </div>
     </div>
 </body>
@@ -77,7 +75,7 @@ HOME_TEMPLATE = """
 """
 
 # =========================================================
-# STREAM FUNCTION WITH FULL LOGS
+# STREAM FUNCTION
 # =========================================================
 
 def generate_stream(stream_name, url):
@@ -85,9 +83,8 @@ def generate_stream(stream_name, url):
     log("SYSTEM", "=" * 60)
     log("SYSTEM", f"SESSION START [{session_id}]")
     log("SYSTEM", f"URL: {url}")
-    log("SYSTEM", f"Cookies: {COOKIES_FILE} Exists={os.path.exists(COOKIES_FILE)}")
 
-    # KEY FIX: use ios client to bypass PO Token requirement
+    # KEY: Use TV client. No cookies. Bypasses PO Token + Login required
     yt_cmd = [
         "yt-dlp",
         "-v",
@@ -97,17 +94,18 @@ def generate_stream(stream_name, url):
         "--live-from-start",
         "--retries", "10",
         "--fragment-retries", "10",
-        "--extractor-args", "youtube:player_client=ios",
-        "--cookies", COOKIES_FILE,
-        "--user-agent", "com.google.ios.youtube/19.45.4",
+        "--extractor-args", "youtube:player_client=tv",
+        "--user-agent", "Mozilla/5.0 (Chromium; CrOS x86_64 14541.0.0) AppleWebKit/537.36",
+        "--no-check-certificates",
+        "--force-ipv4", # helps with Koyeb IPv6 issues
         url
     ]
 
     ffmpeg_cmd = [
         "ffmpeg",
-        "-loglevel", "info",  # set to debug if you need more
+        "-loglevel", "error", # less spam. use 'info' or 'debug' if needed
         "-reconnect", "1",
-        "-reconnect_streamed", "1", 
+        "-reconnect_streamed", "1",
         "-reconnect_delay_max", "5",
         "-i", "pipe:0",
         "-vn",
@@ -119,7 +117,6 @@ def generate_stream(stream_name, url):
     ]
 
     log("SYSTEM", f"YT-DLP CMD: {' '.join(yt_cmd)}")
-    log("SYSTEM", f"FFMPEG CMD: {' '.join(ffmpeg_cmd)}")
 
     yt_process = subprocess.Popen(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
     ffmpeg_process = subprocess.Popen(ffmpeg_cmd, stdin=yt_process.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
@@ -172,21 +169,17 @@ def generate_stream(stream_name, url):
 
 @app.route("/")
 def home():
-    return render_template_string(
-        HOME_TEMPLATE, 
-        streams=STREAMS, 
-        cookies_status="OK" if os.path.exists(COOKIES_FILE) else "MISSING"
-    )
+    return render_template_string(HOME_TEMPLATE, streams=STREAMS)
 
 @app.route("/<stream_name>")
 def stream(stream_name):
     if stream_name not in STREAMS:
         log("ERROR", f"Stream not found: {stream_name}")
         return "Stream not found", 404
-    
+
     url = STREAMS[stream_name]
     log("SYSTEM", f"INCOMING REQUEST: /{stream_name} from {request.remote_addr}")
-    
+
     return Response(
         generate_stream(stream_name, url),
         mimetype="audio/mpeg",
@@ -200,6 +193,6 @@ def stream(stream_name):
 if __name__ == "__main__":
     print("=" * 60)
     print("YOUTUBE AUDIO STREAM SERVER STARTING")
-    print("Client: iOS | Cookies:", os.path.exists(COOKIES_FILE))
+    print("Client: TV | No Cookies")
     print("=" * 60)
     app.run(host="0.0.0.0", port=8000, threaded=True)
